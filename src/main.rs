@@ -1,5 +1,8 @@
 extern crate notify;
 extern crate libc;
+#[macro_use]
+extern crate nom;
+extern crate time;
 
 mod inotify;
 mod logrotate;

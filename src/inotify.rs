@@ -8,7 +8,7 @@ use logrotate::{handle_log,LogMode};
 pub fn watch_files(files: &[&'static str]) -> notify::Result<()> {
     let (tx, rx) = channel();
 
-    let mut watcher = try!(INotifyWatcher::new_raw(tx));
+    let mut watcher = INotifyWatcher::new_raw(tx)?;
     
     files.iter().for_each(|filename| {
         watcher.watch(filename, RecursiveMode::Recursive).unwrap_or_else(|e| {
@@ -24,7 +24,7 @@ pub fn watch_files(files: &[&'static str]) -> notify::Result<()> {
                         Some(p) => p,
                         None => { continue; },
                     };
-                    match handle_log(path_str, LogMode::External(100)) {
+                    match handle_log(path_str, LogMode::External(1000, 100)) {
                         Err(e) => { println!("Error handling log: {}", e) },
                         _ => (),
                     };
