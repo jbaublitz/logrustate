@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fmt::{self,Display};
 use std::ffi::CString;
 use std::fs::{self,File};
+use std::path::Path;
 
 use time;
 use libc;
@@ -41,7 +42,7 @@ named_args!(count_newlines(lines: usize) <NewlineResult>, map!(fold_many1!(
 }));
 
 pub enum LogMode {
-    External(usize, usize),
+    External(usize),
     Piped(usize),
     Managed(usize),
 }
@@ -105,50 +106,117 @@ impl Error for LogHandleError {
     }
 }
 
-pub fn handle_log(logfile: &str, mode: LogMode) -> Result<(), LogHandleError> {
-    match mode {
-        LogMode::External(buf_size, file_sz_lmt) => handle_external_log(logfile, file_sz_lmt, buf_size)?,
-        LogMode::Piped(buf_size) => handle_piped_log(logfile, buf_size)?,
-        LogMode::Managed(buf_size) => handle_managed_log(logfile, buf_size)?,
-    };
-    Ok(())
+pub struct OldLogState {
+    old_logs: Vec<String>,
+    old_log_cap: usize,
 }
 
-fn handle_external_log(logfile: &str, file_sz_lmt: usize, num_lines: usize)
-                       -> Result<(), LogHandleError> {
-    let file_size = match fs::metadata(logfile)?.len() {
-        i if i > file_sz_lmt as u64 => file_sz_lmt as u64,
-        i => i,
-    };
-    let mmap_buf = unsafe {
-        let fd = match libc::open(logfile as *const _ as *const i8, libc::O_RDONLY) {
-            i if i < 0 => Err(LogHandleError::from(i)),
-            i => Ok(i),
-        }?;
-        let mmap_ptr = libc::mmap(ptr::null_mut(), file_size as usize, libc::PROT_READ,
-                                  libc::MAP_SHARED, fd, 0);
-        slice::from_raw_parts(mmap_ptr as *const u8, file_size as usize)
-    };
-    let newline_result = count_newlines(mmap_buf, num_lines).to_result()?;
-    match newline_result {
-        NewlineResult::Less => (),
-        NewlineResult::Head(h, hsz) => {
-            strip_log_head(logfile, h, hsz)?
+impl OldLogState {
+    pub fn new(logfile_base: &str, num_old_logs: usize) -> Self {
+        let mut state = OldLogState{ old_logs: Vec::new(),
+                                     old_log_cap: num_old_logs, };
+        state.populate_old_logs(logfile_base);
+        state
+    }
+
+    fn populate_old_logs(&mut self, logfile_base: &str) {
+        (0..self.old_log_cap).for_each(|v| {
+            let path = format!("{}.{}", logfile_base, v);
+            self.old_logs.push(path);
+        });
+    }
+}
+
+pub struct LogState<'a> {
+    logfile: &'a str,
+    mmap: Option<&'a [u8]>,
+    old_logs: OldLogState,
+    file_sz_lmt: usize,
+}
+
+impl<'a> LogState<'a> {
+    pub fn new(logfile: &'a str, old_log_num: usize, file_sz_lmt: usize) -> Self {
+        LogState { logfile,
+                   old_logs: OldLogState::new(logfile, old_log_num),
+                   mmap: None, file_sz_lmt }
+    }
+
+    pub fn handle_log(&mut self, mode: LogMode) -> Result<(), LogHandleError> {
+        match mode {
+            LogMode::External(buf_size) => self.handle_external_log(buf_size)?,
+            LogMode::Piped(buf_size) => self.handle_piped_log(buf_size)?,
+            LogMode::Managed(buf_size) => self.handle_managed_log(buf_size)?,
+        };
+        Ok(())
+    }
+
+    fn handle_external_log(&mut self, num_lines: usize)
+                           -> Result<(), LogHandleError> {
+        if let None = self.mmap {
+            let file_size = match fs::metadata(self.logfile)?.len() {
+                i if i > self.file_sz_lmt as u64 => self.file_sz_lmt as u64,
+                i => i,
+            };
+            self.mmap = Some(unsafe {
+                let fd = match libc::open(self.logfile as *const _ as *const i8, libc::O_RDONLY) {
+                    i if i < 0 => Err(LogHandleError::from(i)),
+                    i => Ok(i),
+                }?;
+                let mmap_ptr = libc::mmap(ptr::null_mut(), file_size as usize, libc::PROT_READ,
+                                          libc::MAP_SHARED, fd, 0);
+                slice::from_raw_parts(mmap_ptr as *const u8, file_size as usize)
+            });
+            if let Some(mmap) = self.mmap {
+                let newline_result = count_newlines(mmap, num_lines).to_result()?;
+                match newline_result {
+                    NewlineResult::Less => (),
+                    NewlineResult::Head(h, hsz) => {
+                        self.logrotate(h, hsz)?
+                    }
+                };
+            }
         }
-    };
-    Ok(())
+        Ok(())
+    }
+
+    fn handle_piped_log(&mut self, buf_size: usize) -> Result<(), LogHandleError> {
+        Ok(())
+    }
+
+    fn handle_managed_log(&mut self, buf_size: usize) -> Result<(), LogHandleError> {
+        Ok(())
+    }
+
+    fn strip_log_head(&self, path: &str, head: &String, head_size: usize) -> Result<(), LogHandleError> {
+        let mut f = File::open(path)?;
+        f.write_all(head.as_bytes())?;
+        Ok(())
+    }
+
+    fn logrotate(&self, head: String, head_size: usize) -> Result<(), LogHandleError> {
+        let mut found_log_slot = false;
+        for (i, path) in self.old_logs.old_logs.iter().enumerate() {
+            let exists = Path::new(path).exists();
+            if !exists {
+                if i != 0 {
+                    for path in self.old_logs.old_logs.iter().take(i) {
+
+                    }
+                }
+                match self.strip_log_head(path, &head, head_size) {
+                    Ok(()) => { found_log_slot = true; break; },
+                    Err(e) => {
+                        println!("Failed to strip head of file {}: {}", path, e);
+                        continue;
+                    },
+                };
+            }
+        };
+        if !found_log_slot {
+            fs::remove_file(self.old_logs.old_logs.last().unwrap())?;
+            
+        }
+        Ok(())
+    }
 }
 
-fn strip_log_head(logfile: &str, head: String, head_size: usize) -> Result<(), LogHandleError> {
-    let mut f = File::open(format!("{}.{}", logfile, time::now_utc().strftime("%s")?))?;
-    f.write_all(head.as_bytes())?;
-    Ok(())
-}
-
-fn handle_piped_log(logfile: &str, buf_size: usize) -> Result<(), LogHandleError> {
-    Ok(())
-}
-
-fn handle_managed_log(logfile: &str, buf_size: usize) -> Result<(), LogHandleError> {
-    Ok(())
-}
