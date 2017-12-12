@@ -25,7 +25,7 @@ pub fn watch_files(files: &[&'static str]) -> notify::Result<()> {
                         None => { continue; },
                     };
                     let mut logstate = LogState::new(path_str, 5, 100);
-                    match logstate.handle_log(LogMode::External(1000)) {
+                    match logstate.handle_log(LogMode::External) {
                         Err(e) => { println!("Error handling log: {}", e) },
                         _ => (),
                     };

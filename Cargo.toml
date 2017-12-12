@@ -6,5 +6,3 @@ authors = ["John Baublitz <john.m.baublitz@gmail.com>"]
 [dependencies]
 notify = "*"
 libc = "*"
-nom = "*"
-time = "*"
