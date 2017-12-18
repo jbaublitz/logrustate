@@ -3,7 +3,7 @@ use std::sync::mpsc::channel;
 use notify::{self,INotifyWatcher,Watcher,RecursiveMode,RawEvent};
 use notify::op::{WRITE,CLOSE_WRITE};
 
-use logrotate::{LogState,LogMode};
+use logrotate::LogState;
 
 pub fn watch_files(files: &[&'static str]) -> notify::Result<()> {
     let (tx, rx) = channel();
@@ -16,16 +16,16 @@ pub fn watch_files(files: &[&'static str]) -> notify::Result<()> {
         });
     });
 
+    let mut logstate = LogState::new(5, 4096);
     loop {
         match rx.recv() {
             Ok(RawEvent { path: Some(path), op: Ok(op), cookie: _ }) => {
-                if op == WRITE || op == CLOSE_WRITE {
+                if op == WRITE {
                     let path_str = match path.to_str() {
                         Some(p) => p,
                         None => { continue; },
                     };
-                    let mut logstate = LogState::new(path_str, 5, 100);
-                    match logstate.handle_log(LogMode::External) {
+                    match logstate.handle_external_log(path_str) {
                         Err(e) => { println!("Error handling log: {}", e) },
                         _ => (),
                     };

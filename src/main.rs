@@ -1,5 +1,6 @@
 extern crate notify;
 extern crate libc;
+extern crate nix;
 
 mod inotify;
 mod logrotate;
