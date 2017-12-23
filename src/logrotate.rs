@@ -184,3 +184,15 @@ impl<'a> LogState<'a> {
         Ok(())
     }
 }
+
+impl<'a> Drop for LogState<'a> {
+    fn drop(&mut self) {
+        self.mmaps.drain().for_each(|(_, mmap_vals)| {
+            let (fd, mmap): (u32, &[u8]) = mmap_vals;
+            unsafe { libc::close(fd as libc::c_int) };
+            let mut mmap_vec = mmap.to_vec();
+            let mmap_len: usize = mmap.len();
+            unsafe { libc::munmap(mmap_vec.as_mut_slice() as *mut _ as *mut libc::c_void, mmap_len) };
+        })
+    }
+}
