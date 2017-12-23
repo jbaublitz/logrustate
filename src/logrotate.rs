@@ -21,13 +21,6 @@ pub enum LogHandleError {
     Utf8(str::Utf8Error),
     Syscall(i32, String),
     IO(io::Error),
-    App(String),
-}
-
-impl LogHandleError {
-    pub fn new(s: String) -> Self {
-        LogHandleError::App(s)
-    }
 }
 
 impl LogHandleError {
@@ -63,7 +56,6 @@ impl Error for LogHandleError {
             LogHandleError::Utf8(ref e) => e.description(),
             LogHandleError::Syscall(_, ref string) => string.as_str(),
             LogHandleError::IO(ref e) => e.description(),
-            LogHandleError::App(ref s) => s.as_str(),
         }
     }
 }
@@ -82,33 +74,38 @@ impl OldLogState {
         let mut chunks = file_size as usize / buf_size;
         let mut num_discarded = 0;
         if chunks > self.num_old_logs {
-            println!("Some logs will be discarded - consider upping either\
+            println!("Some logs will be discarded - consider upping either \
                      buffer size or number of old logs");
             num_discarded = chunks - self.num_old_logs;
             chunks = self.num_old_logs;
         }
-        let mut existing_files = (0..self.num_old_logs).fold(Vec::new(), |mut acc, item| {
+        let existing_files = (0..self.num_old_logs).fold(Vec::new(), |mut acc, item| {
             let path = format!("{}.{}", logfile_base, item);
             if Path::new(&path).exists() {
                 acc.push(path);
             }
             acc
         });
-        let mut num_files_rm = if existing_files.len() > chunks {
+        println!("Found the following old logs: {:?}", existing_files);
+        let num_files_rm = if existing_files.len() == self.num_old_logs {
             chunks
         } else {
-            existing_files.len()
+            0
         };
-        for file in existing_files.drain(..num_files_rm) {
+        let mut existing_files_enum = existing_files.iter().enumerate().rev();
+        for (_, file) in existing_files_enum.by_ref().take(num_files_rm) {
+            println!("Removing the following file: {}", file);
             fs::remove_file(file)?
         }
-        for (i, file) in existing_files.iter().enumerate() {
-            fs::rename(file, format!("{}.{}", logfile_base, i))?
+        for (i, file) in existing_files_enum {
+            let new_file = format!("{}.{}", logfile_base, i + 1);
+            println!("Renaming file {} to {}", file, new_file);
+            fs::rename(file, new_file)?
         }
         if num_discarded > 0 {
-            Ok((0, num_discarded))
+            Ok((self.num_old_logs as u64, num_discarded))
         } else {
-            Ok((existing_files.len() as u64, num_discarded))
+            Ok((num_files_rm as u64, 0))
         }
     }
 }
@@ -159,7 +156,7 @@ impl<'a> LogState<'a> {
         Ok(())
     }
 
-    fn strip_log_head(&self, logfile_base: &str, start_num: u64, num_drop: usize)
+    fn strip_log_head(&self, logfile_base: &str, end_num: u64, num_drop: usize)
                       -> Result<(), LogHandleError> {
         if let Some(&(fd, mmap)) = self.mmaps.get(logfile_base) {
             if num_drop > 0 {
@@ -168,7 +165,7 @@ impl<'a> LogState<'a> {
                     return Err(LogHandleError::from_errno());
                 }
             }
-            for file_num in start_num..self.old_logs.num_old_logs as u64 {
+            for file_num in 0..end_num {
                 let mut f = File::create(&format!("{}.{}", logfile_base, file_num))?;
                 f.write_all(mmap)?;
                 if unsafe { libc::fallocate(fd as libc::c_int, libc::FALLOC_FL_COLLAPSE_RANGE,
@@ -182,8 +179,8 @@ impl<'a> LogState<'a> {
     }
 
     fn logrotate(&mut self, path: &str, current_size: u64) -> Result<(), LogHandleError> {
-        let (start_num, num_drop) = self.old_logs.shift_logs(path, current_size, self.buf_size)?;
-        self.strip_log_head(path, start_num, num_drop)?;
+        let (end_num, num_drop) = self.old_logs.shift_logs(path, current_size, self.buf_size)?;
+        self.strip_log_head(path, end_num, num_drop)?;
         Ok(())
     }
 }

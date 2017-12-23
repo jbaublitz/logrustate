@@ -1,7 +1,7 @@
 use std::sync::mpsc::channel;
 
 use notify::{self,INotifyWatcher,Watcher,RecursiveMode,RawEvent};
-use notify::op::{WRITE,CLOSE_WRITE};
+use notify::op::{WRITE};
 
 use logrotate::LogState;
 
