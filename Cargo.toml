@@ -2,8 +2,18 @@
 name = "logrustate"
 version = "0.1.0"
 authors = ["John Baublitz <john.m.baublitz@gmail.com>"]
+description = "Event driven logrotate implementation"
+license = "BSD-3-Clause"
+repository = "https://github.com/jbaublitz/logrustate"
+keywords = ["logrotate", "logs", "inotify", "notify"]
+include = [
+    "**/*.rs",
+    "Cargo.toml",
+    "LICENSE",
+]
 
 [dependencies]
-notify = "*"
-libc = "*"
-nix = "*"
+getopts = "0.2"
+libc = "0.2"
+nix = "0.5"
+notify = "4.0"

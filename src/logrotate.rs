@@ -10,12 +10,6 @@ use std::collections::HashMap;
 use libc;
 use nix;
 
-pub enum LogMode {
-    External,
-    Piped,
-    Managed,
-}
-
 #[derive(Debug)]
 pub enum LogHandleError {
     Utf8(str::Utf8Error),
@@ -122,7 +116,7 @@ impl<'a> LogState<'a> {
                    mmaps: HashMap::new(), buf_size }
     }
 
-    pub fn handle_external_log(&mut self, logfile: &str) -> Result<(), LogHandleError> {
+    pub fn handle_log(&mut self, logfile: &str) -> Result<(), LogHandleError> {
         let mmap_open = self.mmaps.contains_key(logfile);
         if !mmap_open {
             unsafe {
@@ -145,14 +139,6 @@ impl<'a> LogState<'a> {
         if current_size > self.buf_size as u64 {
             self.logrotate(logfile, current_size)?
         }
-        Ok(())
-    }
-
-    fn handle_piped_log(&mut self) -> Result<(), LogHandleError> {
-        Ok(())
-    }
-
-    fn handle_managed_log(&mut self) -> Result<(), LogHandleError> {
         Ok(())
     }
 
